@@ -9,8 +9,7 @@ from datetime import datetime
 from io import BytesIO
 
 # --- ВСТАВЬ СВОЙ ТОКЕН ТУТ ---
-API_TOKEN = '8513383405:AAFaIDvu87_EZ-lJYbsWeDipo4CFmm9q6F8'
-
+API_TOKEN = '8513383405:AAF0bQ29FmCzcoSTpMbUtXuCExDDrrWrwzw'
 bot = telebot.TeleBot(API_TOKEN)
 
 class PowerFarmer:
