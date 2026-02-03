@@ -4,60 +4,51 @@ import random
 import string
 import time
 import os
+from telebot import types
 from datetime import datetime
 from io import BytesIO
 
-# --- НАСТРОЙКИ (ВСТАВЬ СВОЁ) ---
-API_TOKEN = '8513383405:AAFaIDvu87_EZ-lJYbsWeDipo4CFmm9q6F8' # От @BotFather
-MY_ID = 7881790939             # Твой ID от @userinfobot
+# --- ВСТАВЬ СВОЙ ТОКЕН ТУТ ---
+API_TOKEN = '8513383405:AAFaIDvu87_EZ-lJYbsWeDipo4CFmm9q6F8'
 
 bot = telebot.TeleBot(API_TOKEN)
 
-class HostFarmer:
+class PowerFarmer:
     def __init__(self):
         self.api_url = "https://api.mail.tm"
         self.domains = []
-        self.results = []
-        self.is_running = False
-        self.session = requests.Session()
+        self.active_tasks = {} # Храним данные сессий юзеров
 
     def get_headers(self):
-        """Эмуляция реального браузера для обхода защиты хостингов"""
-        versions = [128, 129, 130, 131, 132]
-        v = random.choice(versions)
+        v = random.randint(128, 133)
         return {
             "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{v}.0.0.0 Safari/537.36",
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "Sec-Ch-Ua": f'"Google Chrome";v="{v}", "Chromium";v="{v}", "Not_A Brand";v="24"',
-            "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
             "Origin": "https://mail.tm",
             "Referer": "https://mail.tm/"
         }
 
-    def fetch_domains(self):
+    def update_domains(self):
         try:
-            res = self.session.get(f"{self.api_url}/domains", timeout=10)
+            res = requests.get(f"{self.api_url}/domains", timeout=10)
             self.domains = [d['domain'] for d in res.json()['hydra:member']]
         except:
             self.domains = ["mail.tm", "vintagereads.com", "frylinks.com"]
 
-    def create_acc(self):
-        # Реалистичные префиксы для почт
-        prefs = ["ivan", "alex", "dimon", "master", "work", "pro.user", "dev", "studio", "office"]
-        login = f"{random.choice(prefs)}.{''.join(random.choices(string.ascii_lowercase, k=4))}{random.randint(10, 99)}"
-        domain = random.choice(self.domains)
+    def register(self):
+        # Реалистичные префиксы
+        names = ["nick", "user", "pro", "dev", "tech", "boss", "admin", "mail"]
+        login = f"{random.choice(names)}.{''.join(random.choices(string.ascii_lowercase, k=4))}{random.randint(100, 999)}"
+        domain = random.choice(self.domains) if self.domains else "mail.tm"
         email = f"{login}@{domain}"
         pwd = ''.join(random.choices(string.ascii_letters + string.digits, k=14))
 
         try:
-            # Имитация человеческой паузы перед кликом
-            time.sleep(random.uniform(1.5, 3.0))
-            res = self.session.post(
+            # Минимальный КД для обхода защиты (человеческий фактор)
+            time.sleep(random.uniform(0.5, 1.0))
+            res = requests.post(
                 f"{self.api_url}/accounts",
                 json={"address": email, "password": pwd},
                 headers=self.get_headers(),
@@ -71,62 +62,83 @@ class HostFarmer:
             return "ERROR"
         return "FAILED"
 
-farmer = HostFarmer()
+farmer = PowerFarmer()
 
-@bot.message_handler(commands=['start', 'farm'])
-def start_handler(message):
-    if message.from_user.id != MY_ID:
-        bot.reply_to(message, "❌ Доступ запрещен. Это приватный бот.")
-        return
+@bot.message_handler(commands=['start', 'farm', 'help'])
+def welcome(message):
+    farmer.update_domains()
+    text = (
+        "👋 **Привет! Я бот для фарма Mail.tm**\n\n"
+        "🔹 Работаю на твоем IP (хостинга)\n"
+        "🔹 Без задержек по 2 минуты\n"
+        "🔹 Выдаю готовый файл в конце\n\n"
+        "👉 **Сколько почт нужно сделать?** (Просто введи число)"
+    )
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text.isdigit())
+def start_farming(message):
+    uid = message.from_user.id
+    count = int(message.text)
     
-    msg = bot.send_message(message.chat.id, "🎯 **Сколько почт фармим?**\n(Введи число, например 50)", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, process_farm)
+    if count > 500:
+        return bot.reply_to(message, "❌ Слишком много за раз. Давай до 500.")
 
-def process_farm(message):
+    farmer.active_tasks[uid] = {"running": True, "accs": []}
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🛑 ОСТАНОВИТЬ И СОХРАНИТЬ", callback_data="stop"))
+    
+    status_msg = bot.send_message(message.chat.id, f"🎬 Начинаю фарм {count} почт...", reply_markup=markup)
+    
+    success = 0
     try:
-        count = int(message.text)
-        farmer.results = []
-        farmer.is_running = True
-        farmer.fetch_domains()
-        
-        bot.send_message(message.chat.id, f"🚀 Запускаю фарм {count} аккаунтов на IP хостинга...")
-        
-        success = 0
-        while success < count and farmer.is_running:
-            res = farmer.create_acc()
+        while success < count and farmer.active_tasks[uid]["running"]:
+            res = farmer.register()
             
             if ":" in str(res):
                 success += 1
-                farmer.results.append(res)
-                # Отправляем инфу в ТГ сразу
+                farmer.active_tasks[uid]["accs"].append(res)
+                # Отправляем лог в чат (каждые 1-2 почты)
                 bot.send_message(message.chat.id, f"✅ `{res}`", parse_mode="Markdown")
             
             elif res == "LIMIT":
-                bot.send_message(message.chat.id, "🛑 **Лимит IP!** Сплю 2 минуты, чтобы не забанили наглухо...")
-                time.sleep(120) # На хостинге лучше подождать подольше
+                bot.send_message(message.chat.id, "⏳ Лимит IP! Жду 15 сек...")
+                time.sleep(15)
             
-            elif res == "ERROR":
-                time.sleep(5)
-            
-        if farmer.results:
-            # Формируем файл для отправки
-            final_data = "\n".join(farmer.results)
-            file_stream = BytesIO(final_data.encode('utf-8'))
-            file_stream.name = "ready_accounts.txt"
-            
-            bot.send_message(message.chat.id, f"🏁 **Готово!**\nВсего создано: {len(farmer.results)}")
-            bot.send_document(message.chat.id, file_stream, caption="📂 Твой файл с готовыми аккаунтами")
-        
-        farmer.is_running = False
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
+            else:
+                time.sleep(1)
 
-@bot.message_handler(commands=['stop'])
-def stop_handler(message):
-    farmer.is_running = False
-    bot.send_message(message.chat.id, "🛑 Фарм остановлен пользователем.")
+        send_final_file(message.chat.id, uid)
+
+    except Exception as e:
+        bot.send_message(message.chat.id, f"⚠️ Ошибка в процессе: {e}")
+
+@bot.callback_query_handler(func=lambda call: call.data == "stop")
+def stop_btn(call):
+    uid = call.from_user.id
+    if uid in farmer.active_tasks:
+        farmer.active_tasks[uid]["running"] = False
+        bot.answer_callback_query(call.id, "Останавливаю и готовлю файл...")
+
+def send_final_file(chat_id, uid):
+    if uid in farmer.active_tasks and farmer.active_tasks[uid]["accs"]:
+        accs_list = farmer.active_tasks[uid]["accs"]
+        count = len(accs_list)
+        
+        # Формируем файл в формате "почта":"пароль"
+        content = "\n".join(accs_list)
+        file = BytesIO(content.encode('utf-8'))
+        file.name = f"farm_results_{count}.txt"
+        
+        bot.send_message(chat_id, f"🏁 **Готово!**\nВсего нафармлено: {count}")
+        bot.send_document(chat_id, file, caption="📂 Лови свой файл с аккаунтами")
+        
+        # Очистка памяти
+        del farmer.active_tasks[uid]
+    else:
+        bot.send_message(chat_id, "❌ Ни одного аккаунта не было создано.")
 
 if __name__ == "__main__":
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Бот запущен и готов к работе на Bothost!")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Мясорубка запущена!")
     bot.polling(none_stop=True)
-
